@@ -85,11 +85,9 @@ def utcify(local_ts_str, tz_name=None, is_dst=None):
     return aware_utc_ts
 
 def parse_xml(raw_data, market_run_id, freq):
-    # extract values from xml
-
+    # values of interest in xml
     data_items = ['LMP_PRC']
     data_label = 'LMP'
-    #market_run_id = market_run_id
 
     # set up storage
     extracted_data = {}
@@ -137,12 +135,13 @@ def request_file():
     #############################
     # LMP node of interest
     node = 'MUSTANGS_2_B1'
-    # choose market of interest (queryname) from the following set
+
+    ### choose market of interest (queryname) from the following set
     # {'PRC_RTPD_LMP' (15-minute LMP for all PNodes and APNodes in $/MWh)
     #  'PRC_LMP'      (hourly LMP for all PNodes and APNodes - for DAM and RUC)
     #  'PRC_INTVL_LMP' (five-minute LMP for all PNodes and APNodes)
     #  'PRC_AS'        (Ancillary Services Regional Shadow Price for all AS types - hourly)}
-    queryname = 'PRC_LMP' 
+    queryname = 'PRC_RTPD_LMP' 
     # start and end date: format = 'yyyymmddT00:00-0000'
     # INTERVAL UNIT = GMT 
     startdatetime = '20180101T08:00-0000'
@@ -170,8 +169,8 @@ def request_file():
     all_months_df = pd.DataFrame(columns =['placeholder'])
 
     # iterate through each month of the year
-    for month in range(1,3):
-
+    for month in range(1,5):
+        print('Pulling month {}...'.format(month))
         startdatetime = '2018' + "{:02d}".format(month) + '01T08:00-0000'
         enddatetime   = '2018' + "{:02d}".format(month + 1) + '01T08:00-0000'
         # Assemble URL
@@ -180,8 +179,7 @@ def request_file():
         else:
             url = url_base + queryname + '&startdatetime=' + startdatetime + '&enddatetime=' + enddatetime + '&version=1&market_run_id=' + market_run_id + '&node=' + node
 
-        #print(url)
-        #return
+
         # PRC_LMP single node:       http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_LMP&startdatetime=20130919T07:00-0000&enddatetime=20130920T07:00-0000&version=1&market_run_id=DAM&node=LAPLMG1_7_B2
         # PRC_INTVL_LMP single node: http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_INTVL_LMP&startdatetime=20130919T07:00-0000&enddatetime=20130919T08:00-0000&version=1&market_run_id=RTM&node=LAPLMG1_7_B2
         # PRC_AS single node:        http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_AS&market_run_id=DAM&startdatetime=20130919T07:00-0000&enddatetime=20130920T07:00-0000&version=1&anc_type=ALL&anc_region=ALL
@@ -212,8 +210,8 @@ def request_file():
 
 
     # Write to CSV
-    month = 'twomonthtest'
-    all_months_df.to_csv('OASIS_Scrape_Output/' + node + month + market_run_id + '_' + queryname + '.csv', columns = list(df))  
+    month = 'fourmonthtest'
+    all_months_df.to_csv('OASIS_Scrape_Output/' + node + '_' + market_run_id + month  + '_' + queryname + '.csv', columns = list(df))  
 
 
 request_file()
