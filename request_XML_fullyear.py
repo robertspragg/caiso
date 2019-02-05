@@ -141,11 +141,12 @@ def request_file():
     #  'PRC_LMP'      (hourly LMP for all PNodes and APNodes - for DAM and RUC)
     #  'PRC_INTVL_LMP' (five-minute LMP for all PNodes and APNodes)
     #  'PRC_AS'        (Ancillary Services Regional Shadow Price for all AS types - hourly)}
-    queryname = 'PRC_RTPD_LMP' 
+    queryname = 'PRC_LMP' 
+
     # start and end date: format = 'yyyymmddT00:00-0000'
     # INTERVAL UNIT = GMT 
-    startdatetime = '20180101T08:00-0000'
-    enddatetime   = '20180201T08:00-0000'
+    #startdatetime = '20180101T08:00-0000'
+    #enddatetime   = '20180201T08:00-0000'
     #############################
     #############################
 
