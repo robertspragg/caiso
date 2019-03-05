@@ -1,6 +1,6 @@
 # File that requests file from OASIS API, returns XML
 # Adapted from PYISO Repository
-# ROBERT SPRAGG: FEBRUARY 1, 2019
+# ROBERT SPRAGG: Last updated March 5, 2019
 
 from bs4 import BeautifulSoup
 import csv
@@ -32,8 +32,9 @@ def unzip(content):
         # have zipfile
         z = zipfile.ZipFile(filecontent)
     except zipfile.BadZipfile:
-        LOGGER.error('%s: unzip failure for content beginning:\n%s' % (self.NAME, str(content)[0:100]))
-        LOGGER.debug('%s: Faulty unzip content:\n%s' % (self.NAME, content))
+        print('No file exists')
+        #LOGGER.error('%s: unzip failure for content beginning:\n%s' % (self.NAME, str(content)[0:100]))
+        #LOGGER.debug('%s: Faulty unzip content:\n%s' % (self.NAME, content))
         return None
 
     # have unzipped content
@@ -84,10 +85,13 @@ def utcify(local_ts_str, tz_name=None, is_dst=None):
     # return
     return aware_utc_ts
 
-def parse_xml(raw_data, market_run_id, freq):
+def parse_xml(raw_data, market_run_id, freq, queryname):
     # values of interest in xml
-    data_items = ['LMP_PRC']
     data_label = 'LMP'
+    if queryname == 'PRC_AS':
+        data_items = ['NS_CLR_PRC', 'RD_CLR_PRC', 'RU_CLR_PRC', 'SP_CLR_PRC']
+    else:
+        data_items = ['LMP_PRC']
 
     # set up storage
     extracted_data = {}
@@ -123,6 +127,52 @@ def parse_xml(raw_data, market_run_id, freq):
 
     return parsed_data
 
+def parse_xml_AS(raw_data, market_run_id, freq, queryname):
+    # values of interest in xml
+    data_label = 'LMP'
+    if queryname == 'PRC_AS':
+        data_items = ['NS_CLR_PRC', 'RD_CLR_PRC', 'RU_CLR_PRC', 'SP_CLR_PRC']
+    else:
+        data_items = ['LMP_PRC']
+
+    # set up storage
+    extracted_data = {}
+    parsed_data = []
+    prices = []
+    # find prices
+    raw_data = raw_data[0]
+    for raw_soup_dp in raw_data:
+        data_item = raw_soup_dp.find(['DATA_ITEM', 'data_item']).string
+        if data_item in data_items:
+            
+            # NOT CONVERTED TO UTC
+            ts = raw_soup_dp.find(['INTERVAL_START_GMT', 'interval_start_gmt']).string
+            # CONVERTED TO UTC
+            ts = utcify(raw_soup_dp.find(['INTERVAL_START_GMT', 'interval_start_gmt']).string)
+            val = float(raw_soup_dp.find(['VALUE', 'value']).string)
+            HE  = float(raw_soup_dp.find(['INTERVAL_NUM']).string)
+
+            try:
+                extracted_data[ts] += [val, HE]
+            except KeyError:
+                extracted_data[ts] = [val, HE]
+    
+    # assemble data
+    for ts in sorted(extracted_data.keys()):
+        parsed_dp = {data_label: extracted_data[ts][0]}
+        parsed_dp.update({'Interval Index' : extracted_data[ts][1]})
+        parsed_dp.update({'UTC timestamp': ts, 'freq': freq, 'market': market_run_id, 'ba_name': 'CAISO'})
+        #if self.options['data'] == 'gen':
+        #    parsed_dp.update({'fuel_name': 'other'})
+
+        # add to storage
+        parsed_data.append(parsed_dp)
+
+    return parsed_data
+
+def check_dst(c):
+    days = c["LocalTime"].dst()
+    return int(days.seconds / 3600)
 
 # URL to pull one hour's 15-minute data from OASIS
 def request_file():
@@ -134,7 +184,7 @@ def request_file():
     ## USER-DEFINED PARAMETERS ##
     #############################
     # LMP node of interest
-    node = 'MUSTANGS_2_B1'
+    node = 'TH_NP15_GEN-APND'
 
     ### choose market of interest (queryname) from the following set
     # {'PRC_RTPD_LMP' (15-minute LMP for all PNodes and APNodes in $/MWh)
@@ -144,9 +194,11 @@ def request_file():
     queryname = 'PRC_LMP' 
 
     # start and end date: format = 'yyyymmddT00:00-0000'
+    year = 2015
     # INTERVAL UNIT = GMT 
     #startdatetime = '20180101T08:00-0000'
     #enddatetime   = '20180201T08:00-0000'
+
     #############################
     #############################
 
@@ -169,22 +221,37 @@ def request_file():
     # Set up final data frame for data storage 
     all_months_df = pd.DataFrame(columns =['placeholder'])
 
-    # iterate through each month of the year
-    for month in range(1,5):
+    # iterate through each month of the year, handle timezone changes properly
+    for month in range(3, 13):
         print('Pulling month {}...'.format(month))
-        startdatetime = '2018' + "{:02d}".format(month) + '01T08:00-0000'
-        enddatetime   = '2018' + "{:02d}".format(month + 1) + '01T08:00-0000'
+
+        # Adjust startdate hour depending on DST
+        if (month < 4) or (month == 12): #start of month not on DST
+            startdatetime = str(year) + "{:02d}".format(month) + '01T08:00-0000'
+        else:
+            startdatetime = str(year) + "{:02d}".format(month) + '01T07:00-0000'
+
+        # Adjust enddate formatting for DST / end of year
+        if month == 12:
+            enddatetime   = str(year + 1) + "{:02d}".format(month - 11) + '01T08:00-0000'
+        elif 2 < month < 11: # start of month endofmonth on DST
+            enddatetime   = str(year) + "{:02d}".format(month + 1) + '01T07:00-0000'
+        else: #endofmonth not on DST(jan, feb, nov)
+            enddatetime   = str(year) + "{:02d}".format(month + 1) + '01T08:00-0000'
+
         # Assemble URL
         if queryname == 'PRC_AS':
-            url = url_base + queryname + '&market_run_id=' + market_run_id + '&startdatetime' + startdatetime + '&enddatetime' + enddatetime + '&version=1&anc_type=ALL&anc_region=ALL'
+            url = url_base + queryname + '&market_run_id=' + market_run_id + '&startdatetime=' + startdatetime + '&enddatetime=' + enddatetime + '&version=1&anc_type=ALL&anc_region=ALL'
+            print(url)
         else:
             url = url_base + queryname + '&startdatetime=' + startdatetime + '&enddatetime=' + enddatetime + '&version=1&market_run_id=' + market_run_id + '&node=' + node
+            print(url)
 
-
+        ## SAMPLE URLs ##
         # PRC_LMP single node:       http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_LMP&startdatetime=20130919T07:00-0000&enddatetime=20130920T07:00-0000&version=1&market_run_id=DAM&node=LAPLMG1_7_B2
         # PRC_INTVL_LMP single node: http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_INTVL_LMP&startdatetime=20130919T07:00-0000&enddatetime=20130919T08:00-0000&version=1&market_run_id=RTM&node=LAPLMG1_7_B2
         # PRC_AS single node:        http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_AS&market_run_id=DAM&startdatetime=20130919T07:00-0000&enddatetime=20130920T07:00-0000&version=1&anc_type=ALL&anc_region=ALL
-        #url = 'http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_RTPD_LMP&startdatetime=20180101T00:00-0000&enddatetime=20180103T00:00-0000&version=1&market_run_id=RTPD&node=MUSTANGS_2_B1'
+        # url = 'http://oasis.caiso.com/oasisapi/SingleZip?queryname=PRC_RTPD_LMP&startdatetime=20180101T00:00-0000&enddatetime=20180103T00:00-0000&version=1&market_run_id=RTPD&node=MUSTANGS_2_B1'
 
         # HTTP Response
         resp = requests.get(url)
@@ -196,7 +263,10 @@ def request_file():
         raw_data = [BeautifulSoup(thisfile, 'xml').find_all(['REPORT_DATA', 'report_data']) for thisfile in content]
 
         # returns a list of dictionaries, one for each timestep, with LMP as one of the key value pairs (i.e. {'LMP' : 23.4})
-        parsed_data = parse_xml(raw_data, market_run_id, freq)
+        if queryname == 'PRC_AS':
+            parsed_data = parse_xml_AS(raw_data, market_run_id, freq, queryname)
+        else:
+            parsed_data = parse_xml(raw_data, market_run_id, freq, queryname)
         #print('Parsed Data:\n')
 
         # Convert list of dictionaries to pandas dataframe
@@ -209,10 +279,15 @@ def request_file():
             all_months_df = [all_months_df, df]
             all_months_df = pd.concat(all_months_df)
 
-
+    # convert time column to datetime
+    all_months_df['UTC timestamp'] = pd.to_datetime(all_months_df['UTC timestamp'], format='%Y-%m-%d %H:%M:%S', utc=True)
+    # add PST column
+    all_months_df['LocalTime'] = all_months_df['UTC timestamp'].dt.tz_convert('US/Pacific')
+    ## Add column which checks for DST active or not
+    all_months_df['DST'] = all_months_df.apply(check_dst, axis=1)
     # Write to CSV
-    month = 'fourmonthtest'
-    all_months_df.to_csv('OASIS_Scrape_Output/' + node + '_' + market_run_id + month  + '_' + queryname + '.csv', columns = list(df))  
-
+    month = 'all_months'
+    all_months_df.to_csv('OASIS_Scrape_OutputV2/' + node + '_'  + str(year)  + '_' + queryname + '.csv', columns=list(all_months_df))  
+    #all_months_df.to_csv('OASIS_Scrape_OutputV2/' + 'test.csv', columns=list(df))
 
 request_file()
